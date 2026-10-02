@@ -3,12 +3,14 @@
 
 Labels — the genre / rating line, the sash and notch, the Bar, the landscape
 info line and badge, the trending ribbon's caption — are drawn in the *label
-font*.  Inter is the default; Rubik is the one that has Hebrew; the rest are
+font*.  Inter is the default; Rubik is the one that has Hebrew, Almarai
+the one that has Arabic (Tajawal has it too); the rest are
 Google Fonts families with Inter's ★ added (tools/build_label_fonts.py), and an
 operator can upload more (custom_fonts, keys "custom-…").  A choice that has
 no glyphs for the poster's language falls back to the first shipped label font
-that does, so a Hebrew poster is always drawn in Rubik and a Greek or
-Vietnamese one in Inter, whichever the user picked.
+that does, so a Hebrew poster is always drawn in Rubik, an Arabic one in
+Almarai (unless Tajawal is picked) and a Greek or Vietnamese one in Inter,
+whichever the user picked.
 
 The label font is set around a render by build_poster / build_landscape
 (``label_font_scope``), a ContextVar for the same reason pxscale's scale is
@@ -46,6 +48,10 @@ LABEL_FONTS: dict[str, str] = {
     "exo2": "Exo2-Bold.ttf",
     "fira": "FiraSans-Bold.ttf",
     "opensans": "OpenSans-Bold.ttf",
+    # Arabic, with their own Latin.  Almarai first: it is the fallback for
+    # the Arabic nothing above has.
+    "almarai": "Almarai-Bold.ttf",
+    "tajawal": "Tajawal-Bold.ttf",
 }
 DEFAULT_LABEL_FONT = "inter"
 
@@ -113,14 +119,23 @@ def _resolve(path: str, text: str) -> str:
 def font_for_text(path: str, text: str) -> str:
     """*path* if its font can draw *text*, else the first label font that can
     — for text from outside the language files, such as a fallback title in
-    the poster's language."""
-    if covers(path, text):
+    the poster's language.  Arabic is checked as drawn, joined: Rubik has
+    Arabic's letters but not the forms they take in a word."""
+    shown = i18n.joined(text)
+    if covers(path, shown):
         return path
     for name in LABEL_FONTS.values():
         alt = os.path.join(FONTS_DIR, name)
-        if covers(alt, text):
+        if covers(alt, shown):
             return alt
     return path
+
+
+def drawable(text: str) -> bool:
+    """Whether some shipped label font has a glyph for every character of
+    *text* (its Arabic in the joined forms that are drawn)."""
+    shown = i18n.joined(text)
+    return any(covers(_path(key), shown) for key in LABEL_FONTS)
 
 
 @contextmanager
@@ -137,6 +152,33 @@ def label_font_scope(choice: str | None, lang: str | None):
 def label_path() -> str:
     """The current render's label font file."""
     return _LABEL_PATH.get()
+
+
+def alef_height(font: ImageFont.FreeTypeFont) -> float:
+    """How far an alef rises above the baseline in *font*: Arabic's height
+    to centre on, as a capital's is Latin's."""
+    path = getattr(font, "path", None)
+    if path:
+        return _alef_height(path, font.size)
+    return -font.getbbox("\u0627", anchor="ls")[1]
+
+
+@lru_cache(maxsize=256)
+def _alef_height(path: str, size: float) -> float:
+    return -truetype(path, size).getbbox("\u0627", anchor="ls")[1]
+
+
+def arabic_top(font: ImageFont.FreeTypeFont, ink: tuple, cy: float) -> float:
+    """Where to draw Arabic text (its top, as ImageDraw.text takes it) to
+    centre it on *cy*, given its ink box *ink* drawn at the origin.
+
+    Halfway between centring the ink and centring the band from baseline to
+    alef top: an Arabic font's line is taller than its letters (room for
+    stacked vowel marks), so the offset tuned for Latin capitals misplaces
+    it.  On its ink alone, ي's tail and the dots under the line lift a word
+    high; on the alef band alone, a word with no alef ("عربي") sits low."""
+    ascent = font.getmetrics()[0]
+    return cy - (ink[1] + ink[3]) / 4 - (ascent - alef_height(font) / 2) / 2
 
 
 @lru_cache(maxsize=256)

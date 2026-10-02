@@ -24,7 +24,7 @@ import urllib.request
 from fontTools.ttLib import TTFont
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from fontprep import add_label_symbols, strip_heavy_hinting  # noqa: E402
+from fontprep import add_arabic_presentation_forms, add_label_symbols, strip_heavy_hinting  # noqa: E402
 
 # Google Fonts family → output file.
 FAMILIES: dict[str, str] = {
@@ -38,6 +38,8 @@ FAMILIES: dict[str, str] = {
     "Exo 2": "Exo2-Bold.ttf",
     "Fira Sans": "FiraSans-Bold.ttf",
     "Open Sans": "OpenSans-Bold.ttf",
+    "Almarai": "Almarai-Bold.ttf",
+    "Tajawal": "Tajawal-Bold.ttf",
 }
 
 # An old browser's UA gets one static TrueType file per family from the CSS
@@ -72,9 +74,11 @@ def main() -> None:
         font = download_bold(family)
         stripped = strip_heavy_hinting(font)
         added = add_label_symbols(font, inter)
+        forms = add_arabic_presentation_forms(font)
         out = os.path.join(out_dir, FAMILIES[family])
         font.save(out)
         note = f"{' '.join(added)} added from Inter" if added else "has every label symbol"
+        note += f", {forms} Arabic forms mapped" if forms else ""
         print(f"wrote {out} ({note}{', hinting stripped' if stripped else ''})")
 
 

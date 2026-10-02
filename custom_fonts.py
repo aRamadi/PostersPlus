@@ -189,6 +189,9 @@ def prepare(data: bytes) -> tuple[bytes, str, list[str]]:
         added = fontprep.add_label_symbols(font)
         if added:
             notes.append(f"{' '.join(added)} added from Inter")
+        forms = fontprep.add_arabic_presentation_forms(font)
+        if forms:
+            notes.append(f"{forms} Arabic letter forms mapped")
         family = clean_text(font["name"].getBestFamilyName() or "", 80) if "name" in font else ""
         sub = clean_text(font["name"].getBestSubFamilyName() or "", 40) if "name" in font else ""
         buf = io.BytesIO()

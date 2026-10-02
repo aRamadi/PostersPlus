@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Arabic posters, and labels in a title's own language
+
+- **Arabic** poster text: a translation file (`ar`), and Arabic letters are
+  joined into the forms they take in a word before being drawn right to
+  left, so genre and sash labels and a text title standing in for a missing
+  logo read as written Arabic rather than separate, backwards letters. The
+  trending rank, release dates, season numbers and the year are in Arabic
+  digits (`#٨ اليوم`, `٢٠٢٦`); scores and ratings keep 0-9. Arabic is drawn
+  in Almarai whatever font is chosen, as Hebrew is in Rubik; Almarai and
+  Tajawal are new Font choices. An uploaded Arabic font works too: its
+  joined letter forms are mapped on upload. Arabic posters already cached
+  re-render once.
+- **Title's Own Language** (`original_labels`, off by default): titles first
+  made in the listed languages get their labels in that language, and their
+  original title when the title is drawn as text, while every other poster
+  stays in the Native Language. `original_labels=ar` puts an Arabic film's
+  genre, sash and title in Arabic and leaves Hollywood films in English. The
+  configurator takes as many languages as you like; a language without a
+  translation file is left as it is.
 ### Original art in the Logo Priority list
 
 - Logo Priority has a new **Original Art** entry (`art` in `logo_priority`,

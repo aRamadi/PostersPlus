@@ -872,7 +872,8 @@ if not _awards_mod._HAS_SKIA:
     # usual cause is an image missing the libEGL/libGL stubs (see dockerfile).
     logger.warning("skia unavailable — diagonal sashes use the slower PIL fallback")
 from festivals import match_festival_keyword
-from i18n import load_languages, translate_genre, translate_sash, upper_label, visual
+from i18n import (has_arabic, has_language, load_languages, native_digits, translate_genre,
+                  translate_sash, upper_label, visual)
 from cache import (
     get_cached_tvdb_json,
     get_cached_trending_snapshot_entry,
@@ -1926,10 +1927,22 @@ class RequestConfig:
     # Secondary preferred language ("custom").  Only consulted when the logo
     # priority lists "custom"; blank elsewhere (and blank there just skips it).
     logo_language_secondary: str = ""
+    # Original languages (base codes, comma-joined, sorted) whose titles have
+    # their labels — genre, sashes, a text title standing in for a logo — in
+    # that language rather than logo_language: "ar" draws an Arabic film's
+    # labels in Arabic and every other poster's as before.  Only a language
+    # with a translation file switches.  Blank (the default) leaves every
+    # poster in logo_language.
+    original_labels: str = ""
+    # The language this render's labels are in, when original_labels switched
+    # it; blank means logo_language.  Set per render, not read from the URL,
+    # and kept out of the composite cache key: original_labels is in it, and
+    # a title's original language doesn't change.  Read through label_lang.
+    label_language: str = ""
     # Font the labels are drawn in: a fonts.LABEL_FONTS key, or an uploaded
     # font's "custom-…" key (custom_fonts).  A font that has
-    # no glyphs for logo_language's labels gives way to one that does (Hebrew
-    # is drawn in Rubik whatever is chosen).
+    # no glyphs for label_lang's labels gives way to one that does (Hebrew
+    # is drawn in Rubik and Arabic in Almarai whatever is chosen).
     label_font: str = fonts.DEFAULT_LABEL_FONT
     # Logo priority: the ordered sources a logo is looked for in, first match
     # wins — a preset name ("native_original", the default: native → original
@@ -2137,6 +2150,12 @@ class RequestConfig:
     quality_after_digital: bool = False
     rating_text_color: tuple[int, int, int] | None = None
     sash_text_color:   tuple[int, int, int] | None = None
+
+    @property
+    def label_lang(self) -> str:
+        """The language the labels are drawn in: logo_language, or the
+        title's own when original_labels switched it (label_language)."""
+        return self.label_language or self.logo_language
 
 
 # Settings the landscape renderer shares with portrait but wants set
@@ -2388,6 +2407,28 @@ _QUALITY_BADGE_MODES = (1, 2, 4, 5, 6)
 _LANGUAGE_RE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,4})?")
 
 
+def _parse_original_labels(value: "str | None") -> str:
+    """original_labels as stored: the valid codes' base languages ("ar-EG"
+    is "ar"), deduplicated and sorted, comma-joined."""
+    codes = set()
+    for part in (value or "").split(","):
+        part = part.strip().lower()
+        if part and _LANGUAGE_RE.fullmatch(part):
+            codes.add(part.split("-", 1)[0])
+    return ",".join(sorted(codes))
+
+
+def _own_label_language(cfg: "RequestConfig", original_language: "str | None") -> str:
+    """The title's original language when original_labels asks for its
+    labels in it and there is a translation to draw them with, else ""."""
+    base = (original_language or "").strip().lower().split("-", 1)[0]
+    if not base or not cfg.original_labels or base not in cfg.original_labels.split(","):
+        return ""
+    if base == cfg.logo_language.split("-", 1)[0] or not has_language(base):
+        return ""
+    return base
+
+
 def _clean_language(value: "str | None", default: str) -> str:
     if value is None:
         return default
@@ -2457,6 +2498,8 @@ def _render_config_signature(cfg: "RequestConfig") -> str:
         return repr(value)
 
     fields = dataclasses.asdict(cfg)
+    # Per render, decided by the title: original_labels is what keys it.
+    fields.pop("label_language", None)
     # Fields added after composites were first cached are left out at their
     # default, so adding one doesn't change — and re-render — every cached key.
     for name, default in _SIGNATURE_OMIT_AT_DEFAULT.items():
@@ -2492,7 +2535,8 @@ _SIGNATURE_OMIT_AT_DEFAULT = {"poster_width": 500, "rating_badges": "", "rating_
                               "landscape_greyscale": False, "landscape_badge_style": "glass",
                               "landscape_badge_text_color": None, "landscape_winner_star": False,
                               "landscape_logo_scale": 1.0, "landscape_rating_badges": False,
-                              "badge_quality_style": graphic_badges.DEFAULT_QUALITY_STYLE}
+                              "badge_quality_style": graphic_badges.DEFAULT_QUALITY_STYLE,
+                              "original_labels": ""}
 
 
 def _scale_render_cfg(cfg: "RequestConfig") -> "RequestConfig":
@@ -2851,6 +2895,8 @@ def build_request_config(params: dict) -> RequestConfig:
     cfg.logo_language_secondary = _clean_language(
         params.get("logo_language_secondary"), cfg.logo_language_secondary
     )
+    if "original_labels" in params:
+        cfg.original_labels = _parse_original_labels(params.get("original_labels"))
     _lf = (params.get("label_font") or "").strip().lower()
     if fonts.is_label_font(_lf):
         cfg.label_font = _lf
@@ -3944,7 +3990,7 @@ def build_poster(image: Image.Image, score: int | str, genre: str, cfg: "Request
     and scaled to the canvas (pxscale), so a large poster is the 500 one
     enlarged rather than one whose every element rounds a little differently.
     Labels are drawn in cfg's label font (fonts.label_font_scope)."""
-    with pxscale.render_scale(image.width), fonts.label_font_scope(cfg.label_font, cfg.logo_language):
+    with pxscale.render_scale(image.width), fonts.label_font_scope(cfg.label_font, cfg.label_lang):
         return _build_poster(image, score, genre, cfg, *args, **kwargs)
 
 
@@ -4000,7 +4046,7 @@ def _build_poster(
     # Printed form of the genre.  Translate the canonical English name when a
     # translation exists for the request language; otherwise keep the English
     # path including the space-saving override (e.g. "Documentary" → "Doc").
-    _genre_tr = translate_genre(genre, cfg.logo_language)
+    _genre_tr = translate_genre(genre, cfg.label_lang)
     if _genre_tr != genre:
         genre_label = _genre_tr
     else:
@@ -4013,6 +4059,9 @@ def _build_poster(
     # around a missing one.
     if cfg.hide_year:
         release_year = None
+    elif release_year:
+        # In the labels' own digits where the language has them (Arabic).
+        release_year = native_digits(str(release_year), cfg.label_lang)
 
     # Resolve the info-sash pick once, regardless of whether the diagonal sash
     # itself is rendered independently.
@@ -4413,7 +4462,8 @@ def _build_poster(
             return draw.textbbox((0, 0), text, font=current_font)
 
         def _line_width(text: str, current_font) -> int:
-            bbox = _bbox(text, current_font)
+            # As drawn: Arabic joined, which changes its letters' widths.
+            bbox = _bbox(visual(text), current_font)
             return int(bbox[2] - bbox[0])
 
         def _wrap_lines(text: str, current_font) -> list[str]:
@@ -4442,6 +4492,24 @@ def _build_poster(
             ]
             if not line_boxes:
                 return 0, 0, []
+            if len(line_boxes) > 1 and has_arabic(fallback_title) and hasattr(current_font, "getmetrics"):
+                # Arabic lines stack by their letters, not their ink: the
+                # hamza over an alef and the dots and tails under the line
+                # are let into the gap between lines, as Arabic is set, or
+                # two lines stand about five times further apart than Latin
+                # ones.  Each inner edge keeps a margin around the band from
+                # baseline to alef top, so the lines sit about 1.25 em apart.
+                _base = current_font.getmetrics()[0]
+                _alef = fonts.alef_height(current_font)
+                _margin = max(0.0, (0.75 * _alef - line_gap) / 2)
+                _last = len(line_boxes) - 1
+                line_boxes = [
+                    (line, (bbox[0],
+                            max(bbox[1], _base - _alef - _margin) if i > 0 else bbox[1],
+                            bbox[2],
+                            min(bbox[3], _base + _margin) if i < _last else bbox[3]))
+                    for i, (line, bbox) in enumerate(line_boxes)
+                ]
             widths = [bbox[2] - bbox[0] for _, bbox in line_boxes]
             heights = [bbox[3] - bbox[1] for _, bbox in line_boxes]
             block_w = max(widths)
@@ -4649,7 +4717,7 @@ def _build_poster(
             _label_main = " · ".join(_pre_sash)
 
             if _sash_text_for_label:
-                label = _label_main + " · " + translate_sash(_sash_text_for_label, cfg.logo_language) if _label_main else translate_sash(_sash_text_for_label, cfg.logo_language)
+                label = _label_main + " · " + translate_sash(_sash_text_for_label, cfg.label_lang) if _label_main else translate_sash(_sash_text_for_label, cfg.label_lang)
             else:
                 label = _label_main
             label = visual(label)
@@ -4994,7 +5062,7 @@ def _build_poster(
                 _bar_keys = _meta_sorted(cfg, _bar_keys)
                 _parts = [_fields[k] for k in _bar_keys]
             else:  # "sash"
-                _parts = [genre_label or "", translate_sash(_bar_sash, cfg.logo_language) if _bar_sash else ""]
+                _parts = [genre_label or "", translate_sash(_bar_sash, cfg.label_lang) if _bar_sash else ""]
             _parts = [p for p in _parts if p]
             _sep = "  ·  " if len(_parts) <= 2 else " · "
             # Rating badges take the "★ score" part's place, after the rest
@@ -5073,7 +5141,7 @@ def _build_poster(
     if cfg.sash_mode != "hidden" and sash_result is not None:
         label, sash_type = sash_result
         _is_star  = cfg.sash_winner_star and sash_type == "win"
-        _label_tr = translate_sash(label, cfg.logo_language)
+        _label_tr = translate_sash(label, cfg.label_lang)
         if cfg.sash_mode == "notch":
             image = draw_award_badge(image, _label_tr, sash_type=sash_type,
                                      size_ratio_w=cfg.sash_badge_size_w,
@@ -5171,7 +5239,7 @@ def _draw_trending_rank(image: Image.Image, cfg: "RequestConfig", rank: int,
         label = None
         if cfg.trending_label and media_kind in trending_rank.KIND_LABELS:
             label = upper_label(translate_sash(trending_rank.KIND_LABELS[media_kind],
-                                               cfg.logo_language), cfg.logo_language)
+                                               cfg.label_lang), cfg.label_lang)
         top_inset = round(image.height * cfg.sash_badge_inset)
         footprint = trending_rank.ribbon_footprint(image.width, rank, right=right, label=bool(label),
                                                    scale=cfg.trending_scale,
@@ -7367,6 +7435,14 @@ _RENDER_REVISIONS: "tuple[_RenderRevision, ...]" = (
         rev=19,
         applies=lambda cfg: (cfg.shape == "landscape" and _shows_rating_badges(cfg)
                              and bool(set(cfg.rating_badges.split(",")) & set(_ANIME_FILL_SOURCES))),
+        stale=lambda cfg, facts: True,
+    ),
+    # 20: Arabic labels, joined and drawn right to left in Almarai.
+    #     Before the language file, an Arabic poster drew its labels in
+    #     English.  (original_labels is new, so its posters have new keys.)
+    _RenderRevision(
+        rev=20,
+        applies=lambda cfg: cfg.logo_language.split("-", 1)[0] == "ar",
         stale=lambda cfg, facts: True,
     ),
 )
@@ -11270,6 +11346,15 @@ async def get_poster(
         )
 
         _render_cfg = dataclasses.replace(rcfg, hide_rating=True) if _hide_unreleased else rcfg
+        # original_labels: a title first made in one of the listed languages
+        # has its labels in that language, and a text title standing in for
+        # its logo is its original title, when a label font can draw it.
+        _own_lang = _own_label_language(rcfg, tmdb_data.get("original_language"))
+        if _own_lang:
+            _render_cfg = dataclasses.replace(_render_cfg, label_language=_own_lang)
+            _own_title = tmdb_data.get("original_title")
+            if _bp_args.get("fallback_title") and _own_title and fonts.drawable(_own_title):
+                _bp_args["fallback_title"] = _own_title
         if rcfg.rating_badge_kinds:
             # Anime by the rule the weights use: requested by anime id, or
             # carrying a score from an anime site.
