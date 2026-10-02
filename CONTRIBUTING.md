@@ -26,12 +26,13 @@ the full rules. The two that trip people up:
   through to English rather than to the base language. A region file must carry
   the full vocabulary.
 
-Contributed languages must be in Latin, Greek, Cyrillic or Hebrew script —
-between them the label fonts (Inter, Rubik) have no CJK, Arabic, Indic or Thai
-glyphs, and there is no shaping for scripts whose letters join. Right-to-left
-lines are reordered with the bidi algorithm, which is enough for Hebrew. The
-i18n tests fail on any character no label font can draw, and on a file missing
-any key from `en.json`.
+Contributed languages must be in Latin, Greek, Cyrillic, Hebrew or Arabic
+script — between them the label fonts (Inter, Rubik, Almarai) have no
+CJK, Indic or Thai glyphs, and the only joining script shaped is Arabic
+(`i18n.joined`, with arabic-reshaper). Right-to-left lines are reordered with
+the bidi algorithm. A language that writes its own digits can list them as
+`"digits"` (see `ar.json`). The i18n tests fail on any character no label
+font can draw, and on a file missing any key from `en.json`.
 
 ## Adding a setting
 

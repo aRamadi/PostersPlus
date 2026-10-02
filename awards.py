@@ -8,7 +8,7 @@ from typing import Any
 
 import fonts
 import pxscale
-from i18n import visual
+from i18n import has_arabic, visual
 from pxscale import px, pxc, fixed
 
 _FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -1355,6 +1355,9 @@ def _text_center(
         ascent, descent = 0, 0
 
     x = cx - bbox_width / 2 - bbox[0]
+    if has_arabic(text):
+        # The offset below is tuned for Latin capitals.
+        return x, fonts.arabic_top(font, bbox, cy)
     optical_adjust = px(ascent * 0.22)
     y = cy - (ascent + descent) / 2 - descent + optical_adjust
 

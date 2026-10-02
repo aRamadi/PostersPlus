@@ -1,6 +1,8 @@
 """Make a font ready to draw labels in, with fontTools: a CFF (.otf) font's
-outlines turned into TrueType ones, heavy hinting taken out, and the symbols
-the labels draw (★ • · … — –) added from Inter Bold where the font has none.
+outlines turned into TrueType ones, heavy hinting taken out, the symbols
+the labels draw (★ • · … — –) added from Inter Bold where the font has none,
+and an Arabic font's joined letter forms given the code points the labels
+draw them by (add_arabic_presentation_forms).
 
 Used by tools/build_label_fonts.py for the shipped label fonts and by
 custom_fonts for the ones an operator uploads.
@@ -15,6 +17,7 @@ given Inter's advances in proportion.
 from __future__ import annotations
 
 import os
+import unicodedata
 
 from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.recordingPen import DecomposingRecordingPen
@@ -154,3 +157,101 @@ def _cap_height(font: TTFont) -> float:
         if getattr(glyph, "yMax", 0) > 0:
             return glyph.yMax
     return 0.7 * font["head"].unitsPerEm
+
+
+# Arabic: the labels draw Arabic as presentation-form code points
+# (i18n.joined), one per letter in the form its place in the word takes.
+# Modern Arabic fonts reach those forms through OpenType features (init,
+# medi, fina, the lam-alef ligatures) and many leave the code points
+# themselves unmapped, so text drawn without shaping falls back to boxes.
+_FORM_FEATURES = {"initial": ("init",), "medial": ("medi",), "final": ("fina",),
+                  "isolated": ("isol",)}
+_PRESENTATION_FORMS = (range(0xFB50, 0xFE00), range(0xFE70, 0xFF00))
+
+
+def _gsub_lookups(font: TTFont, tags: tuple[str, ...]) -> list:
+    """The GSUB lookups the features *tags* use, in lookup order, with any
+    Extension lookups unwrapped to the subtables inside them."""
+    if "GSUB" not in font or not font["GSUB"].table.FeatureList:
+        return []
+    table = font["GSUB"].table
+    indices = sorted({i for rec in table.FeatureList.FeatureRecord if rec.FeatureTag in tags
+                      for i in rec.Feature.LookupListIndex})
+    lookups = []
+    for i in indices:
+        lookup = table.LookupList.Lookup[i]
+        subtables = [getattr(st, "ExtSubTable", st) for st in lookup.SubTable]
+        lookups.append(subtables)
+    return lookups
+
+
+def _single(lookups: list, glyph: str) -> str | None:
+    """The glyph *glyph* becomes under the first single substitution that
+    names it."""
+    for subtables in lookups:
+        for st in subtables:
+            mapping = getattr(st, "mapping", None)
+            if mapping and glyph in mapping:
+                return mapping[glyph]
+    return None
+
+
+def _ligature(lookups: list, components: list[list[str]]) -> str | None:
+    """A ligature glyph for any one of the spellings in *components* (each a
+    list of alternative glyphs per position)."""
+    for subtables in lookups:
+        for st in subtables:
+            ligatures = getattr(st, "ligatures", None)
+            if not ligatures:
+                continue
+            for first in components[0]:
+                for lig in ligatures.get(first, ()):
+                    rest = lig.Component
+                    if len(rest) == len(components) - 1 and all(
+                            g in alts for g, alts in zip(rest, components[1:])):
+                        return lig.LigGlyph
+    return None
+
+
+def add_arabic_presentation_forms(font: TTFont) -> int:
+    """Map each Arabic presentation form the font has no code point for to
+    the glyph its OpenType features give that letter in that form, in place;
+    how many were added.  A font with no Arabic is left alone."""
+    cmap = font.getBestCmap()
+    if not any(0x0600 <= code <= 0x06FF for code in cmap):
+        return 0
+    forms = {tag: _gsub_lookups(font, tags) for tag, tags in _FORM_FEATURES.items()}
+    ligs = _gsub_lookups(font, ("rlig", "liga", "calt"))
+    added: dict[int, str] = {}
+    for block in _PRESENTATION_FORMS:
+        for code in block:
+            if code in cmap:
+                continue
+            parts = unicodedata.decomposition(chr(code)).split()
+            if len(parts) < 2 or not parts[0].startswith("<"):
+                continue
+            form = parts[0].strip("<>")
+            letters = [int(p, 16) for p in parts[1:]]
+            if form not in _FORM_FEATURES or any(c not in cmap for c in letters):
+                continue
+            bases = [cmap[c] for c in letters]
+            if len(bases) == 1:
+                glyph = bases[0] if form == "isolated" else _single(forms[form], bases[0])
+            elif len(bases) == 2:
+                # Lam-alef and its kin: the ligature is looked for on the
+                # letters as they stand in that form (an isolated lam-alef
+                # is an initial lam and a final alef), and on the bare ones.
+                first = {"isolated": "initial", "final": "medial"}.get(form, form)
+                lead = [g for g in (_single(forms.get(first, []), bases[0]), bases[0]) if g]
+                tail = [g for g in (_single(forms["final"], bases[1]), bases[1]) if g]
+                glyph = _ligature(ligs, [lead, tail])
+            else:
+                glyph = None
+            if glyph:
+                added[code] = glyph
+    if not added:
+        return 0
+    for table in font["cmap"].tables:
+        if table.isUnicode() and table.format in (4, 12):
+            table.cmap.update(added)
+    return len(added)

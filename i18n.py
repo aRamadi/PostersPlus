@@ -15,6 +15,7 @@ import os
 import re
 import unicodedata
 
+from arabic_reshaper import ArabicReshaper
 from bidi import get_display
 
 logger = logging.getLogger(__name__)
@@ -99,22 +100,37 @@ def _translate_release_date(match: "re.Match[str]", sl: dict, lang: str | None) 
     if month_en not in _MONTHS_EN:
         return match.group(0)
     month = _months_short(lang)[_MONTHS_EN.index(month_en)]
+    is_year = len(rest) == 4
+    rest = native_digits(rest, lang)
     season = _SEASON_WINDOW_RE.match(window_en)
     if season:
         # A template rather than a word: most locales put the window before
         # the day, and "Temporada 3 4 mar" runs two numbers together, so
         # they use the short form their TV apps do ("T3 4 mar").
         tmpl = sl.get("seasonWindow")
-        window = tmpl.replace("{n}", season.group(1)) if tmpl else window_en
+        window = tmpl.replace("{n}", native_digits(season.group(1), lang)) if tmpl else window_en
     else:
         window = sl.get(window_en, window_en)
-    if len(rest) == 4:
+    if is_year:
         tmpl = sl.get(f"releaseMonth{window_en}") or sl.get("releaseMonth")
         return (tmpl.replace("{month}", month).replace("{year}", rest).replace("{window}", window)
                 if tmpl else match.group(0))
     tmpl = sl.get(f"releaseDay{window_en}") or sl.get("releaseDay")
     return (tmpl.replace("{month}", month).replace("{day}", rest).replace("{window}", window)
             if tmpl else match.group(0))
+
+
+def native_digits(text: str | None, lang: str | None) -> str:
+    """*text*'s digits written in the language's own, as its file's "digits"
+    gives them (ten, zero first: Arabic's "٠١٢٣٤٥٦٧٨٩"); unchanged for a
+    language that writes 0-9.  Used for the trending rank, dates and years;
+    scores and ratings keep 0-9, and so do names and codes such as "A24" and
+    "4K"."""
+    for code in _lang_candidates(lang):
+        digits = str(_LANGS.get(code, {}).get("digits") or "")
+        if len(digits) == 10:
+            return "".join(digits[ord(ch) - 48] if "0" <= ch <= "9" else ch for ch in (text or ""))
+    return text or ""
 
 
 def translate_genre(name: str | None, lang: str | None) -> str:
@@ -142,8 +158,9 @@ def translate_sash(label: str | None, lang: str | None) -> str:
 
     m = _TRENDING_RE.match(label)
     if m:
+        # The rank in the language's own numerals, where it has them ("#٨").
         tmpl = sl.get("trendingToday")
-        return tmpl.replace("{rank}", m.group(1)) if tmpl else label
+        return tmpl.replace("{rank}", native_digits(m.group(1), lang)) if tmpl else label
 
     m = _RELEASE_DATE_RE.match(label)
     if m:
@@ -190,29 +207,61 @@ def language_text(lang: str | None) -> str:
             months = data.get("monthsShort")
             if isinstance(months, list):
                 parts.extend(str(m) for m in months)
+            parts.append(str(data.get("digits") or ""))
     text = "".join(parts)
-    return text + upper_label(text, lang)
+    text += upper_label(text, lang)
+    # Arabic is drawn in its joined forms, which a font maps separately.
+    return text + joined(text)
 
 
 # Right-to-left scripts: Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan,
 # Mandaic, and their presentation forms.
 _RTL_RE = re.compile("[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]")
 
+# Arabic letters, in the blocks that join (Arabic, its Supplement and
+# Extended-A); and the same with the presentation forms they are joined into.
+_ARABIC_RE = re.compile("[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
+_ARABIC_SHOWN_RE = re.compile("[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+# Harakat (vowel marks) are kept: titles rarely carry them, and when one does
+# the font places them.  Lam-alef ligatures are on, as written Arabic needs.
+_RESHAPER = ArabicReshaper({"delete_harakat": False, "support_ligatures": True})
+
+
+def has_arabic(text: str | None) -> bool:
+    """Whether *text* holds Arabic, joined (as drawn) or not."""
+    return bool(text) and bool(_ARABIC_SHOWN_RE.search(text))
+
+
+def joined(text: str | None) -> str:
+    """Arabic letters swapped for the joined form each takes in its word
+    (initial, medial, final or isolated, and the lam-alef ligatures), in
+    logical order.  Text with no Arabic comes back unchanged.
+
+    The forms are the Arabic Presentation Forms code points, which a font
+    must map: fontprep.add_arabic_presentation_forms maps them for the
+    shipped Arabic fonts and uploaded ones.  visual() applies it, so
+    a caller only needs it to measure a line it isn't about to draw."""
+    if not text or not _ARABIC_RE.search(text):
+        return text or ""
+    return _RESHAPER.reshape(text)
+
 
 def visual(text: str | None) -> str:
     """A line of text in the order it is drawn, left to right.
 
-    Pillow here has no bidi layout (no libraqm) and Skia's drawString has none
-    either: both draw characters in the order they're stored.  A line holding
-    right-to-left script is reordered with the Unicode bidi algorithm, as a
-    right-to-left paragraph — so "דרמה · 2024 ★ 87" reads genre first from the
-    right, with numbers and Latin names still left to right inside it.  Lines
-    with no right-to-left character come back unchanged.
+    Pillow here has no bidi layout or shaping (no libraqm), and Skia's
+    drawString has neither: both draw characters one by one in the order
+    they're stored.  A line holding right-to-left script is reordered with
+    the Unicode bidi algorithm, as a right-to-left paragraph — so
+    "דרמה · 2024 ★ 87" reads genre first from the right, with numbers and Latin
+    names still left to right inside it.  Arabic letters are first joined
+    (joined()), so each is drawn in the form its place in the word takes.
+    Lines with no right-to-left character come back unchanged.
 
     Apply it to a whole line just before measuring and drawing, never before
-    joining or wrapping: reordering is per line.  Hebrew needs nothing more;
-    Arabic would also need its letters joined, which isn't done here.
+    joining or wrapping: reordering is per line.
     """
     if not text or not _RTL_RE.search(text):
         return text or ""
-    return get_display(text, base_dir="R")
+    return get_display(joined(text), base_dir="R")

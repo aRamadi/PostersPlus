@@ -44,7 +44,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 import fonts
-from i18n import translate_genre, translate_sash, upper_label, visual
+from i18n import has_arabic, native_digits, translate_genre, translate_sash, upper_label, visual
 
 
 # --- Layout constants (fractions of the canvas) ------------------------------
@@ -640,8 +640,11 @@ def _draw_badge(image: Image.Image, text: str, position: str, art: Image.Image,
                          getattr(cfg, "landscape_badge_opacity", _DARK_OPACITY))
     else:
         ink = _glass_pill(image, (x, y, x + bw, y + bh), art, cfg, source=source)
-    draw.text((x + pad_x, y + pad_y - round(2 * scale)), text, font=font,
-              fill=(*ink, 245))
+    ty = y + pad_y - round(2 * scale)
+    if has_arabic(text):
+        # The offset above is tuned for Latin capitals.
+        ty = fonts.arabic_top(font, draw.textbbox((0, 0), text, font=font), y + bh / 2)
+    draw.text((x + pad_x, ty), text, font=font, fill=(*ink, 245))
 
 
 def _slot_x(width: int, w: float, align: str) -> int:
@@ -1119,7 +1122,7 @@ def _draw_graphic_badges(image: Image.Image, before: np.ndarray, cfg, tokens: li
 def build_landscape(image: Image.Image, score: int | str, genre: str, cfg, *args, **kwargs) -> Image.Image:
     """Render the landscape poster, its labels in cfg's label font
     (fonts.label_font_scope).  See _build_landscape."""
-    with fonts.label_font_scope(cfg.label_font, cfg.logo_language):
+    with fonts.label_font_scope(cfg.label_font, cfg.label_lang):
         return _build_landscape(image, score, genre, cfg, *args, **kwargs)
 
 
@@ -1220,8 +1223,8 @@ def _build_landscape(
     def _strip(**where):
         return _draw_info_strip(
             image,
-            "" if cfg.hide_genre else (translate_genre(genre, cfg.logo_language) or genre),
-            None if cfg.hide_year else release_year,
+            "" if cfg.hide_genre else (translate_genre(genre, cfg.label_lang) or genre),
+            None if cfg.hide_year or not release_year else native_digits(str(release_year), cfg.label_lang),
             None if cfg.hide_rating else score,
             scale=getattr(cfg, "landscape_info_scale", 1.0),
             out_of_10=getattr(cfg, "landscape_score_out_of_10", False),
@@ -1289,7 +1292,7 @@ def _build_landscape(
         sash_result = pick_sash(discovery_meta, cfg.sash_priority)
         if sash_result is not None:
             label, _sash_type = sash_result
-            label = upper_label(translate_sash(label, cfg.logo_language), cfg.logo_language)
+            label = upper_label(translate_sash(label, cfg.label_lang), cfg.label_lang)
             # A win wears portrait's Winner Star (sash_winner_star) as a ★.
             if getattr(cfg, "landscape_winner_star", False) and _sash_type == "win":
                 label = f"★ {label}"
