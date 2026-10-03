@@ -2054,15 +2054,19 @@ def _chip_mask(w: int, h: int, radius: int) -> Image.Image:
 
 # ── Liquid glass ─────────────────────────────────────────────────────────────
 # A clear lens rather than a frosted panel, after iOS's Liquid Glass: the art
-# behind it lightly blurred and brightened, bent near the rim as a curved
-# glass edge bends it, a thin specular highlight strongest along the top, and
-# the label in whichever ink reads on what shows through.
-_LIQUID_BLUR     = 0.10   # blur radius, a share of the height
-_LIQUID_BEND     = 0.30   # how far the rim pulls its image in, a share of the height
-_LIQUID_BAND     = 0.42   # width of the bending band inside the rim, a share of the height
-_LIQUID_TINT_A   = 0.10   # white wash over the whole lens
-_LIQUID_SHEEN_A  = 0.16   # extra white towards the top, fading by the middle
-_LIQUID_COLOUR_A = 0.58   # tinted glass: how much of the colour behind it the glass takes
+# behind it barely blurred and slightly magnified, bent hard along the rim as
+# a thick curved edge bends it and shaded just inside it, a thin highlight
+# arc where the light catches the top-left of the rim (a faint one opposite),
+# and the label in whichever ink reads on what shows through.  No gloss
+# gradient and only a whisper of shadow: glass floats, it isn't a button.
+_LIQUID_BLUR     = 0.05   # blur radius, a share of the height
+_LIQUID_MAGNIFY  = 0.94   # the lens's centre shows the art this much smaller a span (1 = none)
+_LIQUID_BEND     = 0.45   # how far the rim pulls its image in, a share of the height
+_LIQUID_BAND     = 0.50   # width of the bending band inside the rim, a share of the height
+_LIQUID_WASH_A   = 0.06   # white wash over the whole lens
+_LIQUID_SHADE_A  = 0.16   # darkening just inside the rim, as thick glass darkens there
+_LIQUID_COLOUR_A = 0.18   # tinted glass: how much of the colour behind it the glass takes
+_LIQUID_SHADOW_A = 40     # drop shadow alpha (the side chips' own is heavier)
 
 
 def _rounded_rect_sdf(w: int, h: int, radius: float, square_top: bool = False):
@@ -2085,16 +2089,14 @@ def _rounded_rect_sdf(w: int, h: int, radius: float, square_top: bool = False):
 def _glass_colour(region: Image.Image, poster: Image.Image) -> tuple[float, float, float]:
     """The colour tinted glass takes from what it sits on: the region's own
     most prominent colour (dominant_frost_rgb, which borrows the poster's
-    when the region has only white, grey, black or skin), made vivid enough
-    to read as coloured glass and kept mid-light, so the same label ink
-    reads on it whatever the art."""
+    when the region has only white, grey, black or skin), made vivid."""
     import colorsys
     r, g, b = dominant_frost_rgb(region.convert("RGB"), fallback=poster.convert("RGB"))
     hue, sat, val = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-    if val * sat < 0.05:                       # no real hue: a neutral smoked glass
-        return (0.42 * 255,) * 3
+    if val * sat < 0.05:                       # no real hue: leave the glass clear
+        return (r, g, b)
     sat = min(1.0, max(sat * 1.4, 0.6))
-    val = min(0.78, max(val, 0.5))
+    val = min(0.85, max(val, 0.55))
     return tuple(c * 255 for c in colorsys.hsv_to_rgb(hue, sat, val))
 
 
@@ -2103,48 +2105,49 @@ def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
                       tinted: bool = False) -> tuple[Image.Image, tuple[int, int, int]]:
     """The glass for a w x h pill at (x, y) on *image*: an RGBA layer, and the
     ink its label should take (dark over a bright lens, white over a dark one).
-    *tinted* colours the glass after what is behind it (_glass_colour)."""
+    *tinted* colours the glass a little after what is behind it, and turns up
+    the colour of the art it shows, so it changes with every poster while
+    staying see-through."""
     sdf, nx, ny = _rounded_rect_sdf(w, h, radius, square_top)
-    # The lens: a margin of art around the pill, so the bent rim has something
-    # to pull in, lightly blurred, a little brighter and more saturated.
     m = max(2, int(h * _LIQUID_BEND) + 2)
     l, t = max(0, x - m), max(0, y - m)
     rgt, btm = min(image.width, x + w + m), min(image.height, y + h + m)
     src = image.crop((l, t, rgt, btm)).convert("RGB")
-    src = src.filter(ImageFilter.GaussianBlur(max(1.0, h * _LIQUID_BLUR)))
-    src = ImageEnhance.Color(src).enhance(1.35)
-    src = ImageEnhance.Brightness(src).enhance(1.06)
+    src = src.filter(ImageFilter.GaussianBlur(max(0.6, h * _LIQUID_BLUR)))
+    src = ImageEnhance.Color(src).enhance(1.7 if tinted else 1.25)
     arr = np.asarray(src, dtype=np.float32)
-    # Refraction: inside a band along the rim each pixel shows the art from
-    # further in, more strongly the nearer the edge (a convex rim).
+    # Where each lens pixel looks: slightly magnified about the centre, and
+    # pulled further in near the rim, harder the nearer the edge.
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32) + 0.5
+    cx, cy = w / 2, h / 2
     band = max(1.0, h * _LIQUID_BAND)
     depth = np.clip(1.0 + sdf / band, 0.0, 1.0)       # 1 at the rim, 0 past the band
-    pull = (depth ** 2) * h * _LIQUID_BEND
-    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
-    sx = np.clip(xs - nx * pull + (x - l), 0, arr.shape[1] - 1).astype(np.int32)
-    sy = np.clip(ys - ny * pull + (y - t), 0, arr.shape[0] - 1).astype(np.int32)
+    pull = (depth ** 2.2) * h * _LIQUID_BEND
+    look_x = cx + (xs - cx) * _LIQUID_MAGNIFY - nx * pull
+    look_y = cy + (ys - cy) * _LIQUID_MAGNIFY - ny * pull
+    sx = np.clip(look_x + (x - l), 0, arr.shape[1] - 1).astype(np.int32)
+    sy = np.clip(look_y + (y - t), 0, arr.shape[0] - 1).astype(np.int32)
     lens = arr[sy, sx]
     if tinted:
-        # Coloured glass: the lens takes on the colour of what is behind it,
-        # so the badge changes with every poster (and every corner of one).
         region = image.crop((x, y, min(image.width, x + w), min(image.height, y + h)))
         colour = np.array(_glass_colour(region, image), dtype=np.float32)
         lens = lens * (1 - _LIQUID_COLOUR_A) + colour * _LIQUID_COLOUR_A
-    # A clear wash, brighter towards the top.
-    top = np.clip(1.0 - ys / (h * 0.55), 0.0, 1.0)[..., None]
-    white = _LIQUID_TINT_A + _LIQUID_SHEEN_A * top
-    lens = lens * (1 - white) + 255.0 * white
-    # Specular rim: a thin bright edge, strongest where it faces up, faint below.
-    rim = np.clip(1.0 - np.abs(sdf + 0.9) / 1.1, 0.0, 1.0)
-    rim_a = rim * (0.28 + 0.55 * np.clip(-ny, 0, 1) + 0.12 * np.clip(-nx, 0, 1))
+    lens = lens * (1 - _LIQUID_WASH_A) + 255.0 * _LIQUID_WASH_A
+    # Thick glass darkens just inside its rim.
+    shade = np.clip(1.0 + sdf / (h * 0.16), 0.0, 1.0) ** 1.5 * _LIQUID_SHADE_A
+    lens = lens * (1 - shade[..., None])
+    # The highlight: a thin arc where the rim faces the light (top-left),
+    # a faint one where it faces away (bottom-right), next to none between.
+    facing = (-nx - ny) / np.sqrt(2)                   # 1 facing top-left, -1 bottom-right
+    rim = np.clip(1.0 - np.abs(sdf + 0.7) / 0.8, 0.0, 1.0)
+    rim_a = rim * (0.85 * np.clip(facing, 0, 1) ** 1.6 + 0.30 * np.clip(-facing, 0, 1) ** 2)
     lens = lens * (1 - rim_a[..., None]) + 255.0 * rim_a[..., None]
     coverage = np.clip(0.5 - sdf, 0.0, 1.0)
     rgba = np.dstack([np.clip(lens, 0, 255), coverage * 255]).astype(np.uint8)
     body = Image.fromarray(rgba, "RGBA")
-    # Label ink from what shows through the middle of the lens.
     core = lens[h // 4: max(h // 4 + 1, 3 * h // 4), w // 6: max(w // 6 + 1, 5 * w // 6)]
     luma = float((core @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)).mean()) / 255
-    ink = (24, 24, 30) if luma > 0.62 else (255, 255, 255)
+    ink = (24, 24, 30) if luma > 0.56 else (255, 255, 255)
     return body, ink
 
 
@@ -2200,7 +2203,8 @@ def _draw_side_chip(
         body, ink = liquid_glass_body(image, x, y, w, h, radius, tinted=style == "liquid_tint")
         badge = Image.alpha_composite(body, liquid_glass_label(
             _notch_label_layer_1x(label, font_size_ss, ss, w, h, (*ink, 245)), ink))
-        return _place_chip(image, badge, mask, x, y, w, h, pad, shadow_dy, shadow_blur)
+        return _place_chip(image, badge, mask, x, y, w, h, pad, shadow_dy, shadow_blur,
+                           shadow_a=_LIQUID_SHADOW_A)
     if style != "frosted":
         badge = _dark_chip_body(label, font_size_ss, ss, w, h, radius, border_w,
                                 style, trim_rgb, text_color, body_opacity)
@@ -2265,13 +2269,13 @@ def _dark_chip_body(label: str, font_size_ss: float, ss: int, w: int, h: int,
 
 def _place_chip(image: Image.Image, badge: Image.Image, mask: Image.Image,
                 x: int, y: int, w: int, h: int, pad: int, shadow_dy: int,
-                shadow_blur: float) -> Image.Image:
+                shadow_blur: float, shadow_a: int = _CHIP_SHADOW_A) -> Image.Image:
     """Lay a side chip on the poster over a soft drop shadow of its shape."""
     # Unlike the notch, nothing anchors the chip to an edge, so a soft shadow
     # lifts it off the art.
     result = image.copy()
     sheet = Image.new("L", (w + 2 * pad, h + 2 * pad), 0)
-    sheet.paste(mask.point(lambda a: a * _CHIP_SHADOW_A // 255), (pad, pad))
+    sheet.paste(mask.point(lambda a: a * shadow_a // 255), (pad, pad))
     sheet = sheet.filter(ImageFilter.GaussianBlur(shadow_blur))
     shadow = Image.new("RGBA", sheet.size, (0, 0, 0, 0))
     shadow.putalpha(sheet)
