@@ -449,7 +449,7 @@ TRENDING_SOURCE_MAX_ITEMS    = max(1, int(_env('TRENDING_SOURCE_MAX_ITEMS', "500
 #   <URL>     any MDBList list page — a shared "to watch" list, for example.
 # Unset (the default) disables the feature entirely: no fetch, no sash.
 # -----------------------------------------------------------------------
-APP_VERSION                  = "1.2.0"
+APP_VERSION                  = "1.2.0-AER"
 WATCHLIST_SOURCE             = _env('WATCHLIST_SOURCE', "", group='Watchlist', kind='text', label='Watchlist source', help="Self-hosted only: marks every title in one user's watchlist with a Watchlist sash. mdblist (the watchlist of the MDBList key's account, also the free route for Trakt, which MDBList mirrors), simkl, trakt, pmdb (a PublicMetaDB watchlist), or any MDBList list page URL. Blank disables the feature.", placeholder='mdblist, simkl, trakt, pmdb or a list URL').strip()
 # How often the source is re-checked.  Every cycle is one cheap call (MDBList:
 # one page per 500 items; SIMKL: /sync/activities, the list itself only when
