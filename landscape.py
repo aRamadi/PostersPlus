@@ -540,9 +540,9 @@ def _draw_badge(image: Image.Image, text: str, position: str, art: Image.Image,
         y = hit[3] + gap if down else hit[1] - gap - bh
 
     style = getattr(cfg, "landscape_badge_style", "glass")
-    if style == "liquid":
+    if style in ("liquid", "liquid_tint"):
         from awards import liquid_glass_body, liquid_glass_label
-        body, ink = liquid_glass_body(image, x, y, bw, bh, bh / 2)
+        body, ink = liquid_glass_body(image, x, y, bw, bh, bh / 2, tinted=style == "liquid_tint")
         image.alpha_composite(body, (x, y))
         label_layer = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
         _ty = y + pad_y - round(2 * scale)
