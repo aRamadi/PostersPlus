@@ -1815,10 +1815,11 @@ def draw_award_badge(
             text_color=text_color, body_opacity=body_opacity, offset_x=chip_offset_x,
         )
 
-    if notch_style == "liquid":
+    if notch_style in ("liquid", "liquid_tint"):
         # ── Liquid glass: a clear, bent lens (liquid_glass_body) ──
         crop_y = max(0, by_composite)
-        body, ink = liquid_glass_body(image, bx, crop_y, badge_w, badge_h, radius, square_top=True)
+        body, ink = liquid_glass_body(image, bx, crop_y, badge_w, badge_h, radius, square_top=True,
+                                      tinted=notch_style == "liquid_tint")
         badge = Image.alpha_composite(body, liquid_glass_label(
             _notch_label_layer_1x(label, font_size_ss, SS, badge_w, badge_h, (*ink, 245)), ink))
         result = image.copy()
@@ -2061,6 +2062,7 @@ _LIQUID_BEND     = 0.30   # how far the rim pulls its image in, a share of the h
 _LIQUID_BAND     = 0.42   # width of the bending band inside the rim, a share of the height
 _LIQUID_TINT_A   = 0.10   # white wash over the whole lens
 _LIQUID_SHEEN_A  = 0.16   # extra white towards the top, fading by the middle
+_LIQUID_COLOUR_A = 0.58   # tinted glass: how much of the colour behind it the glass takes
 
 
 def _rounded_rect_sdf(w: int, h: int, radius: float, square_top: bool = False):
@@ -2080,10 +2082,28 @@ def _rounded_rect_sdf(w: int, h: int, radius: float, square_top: bool = False):
     return sdf, gx / norm, gy / norm
 
 
+def _glass_colour(region: Image.Image, poster: Image.Image) -> tuple[float, float, float]:
+    """The colour tinted glass takes from what it sits on: the region's own
+    most prominent colour (dominant_frost_rgb, which borrows the poster's
+    when the region has only white, grey, black or skin), made vivid enough
+    to read as coloured glass and kept mid-light, so the same label ink
+    reads on it whatever the art."""
+    import colorsys
+    r, g, b = dominant_frost_rgb(region.convert("RGB"), fallback=poster.convert("RGB"))
+    hue, sat, val = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    if val * sat < 0.05:                       # no real hue: a neutral smoked glass
+        return (0.42 * 255,) * 3
+    sat = min(1.0, max(sat * 1.4, 0.6))
+    val = min(0.78, max(val, 0.5))
+    return tuple(c * 255 for c in colorsys.hsv_to_rgb(hue, sat, val))
+
+
 def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
-                      radius: float, square_top: bool = False) -> tuple[Image.Image, tuple[int, int, int]]:
+                      radius: float, square_top: bool = False,
+                      tinted: bool = False) -> tuple[Image.Image, tuple[int, int, int]]:
     """The glass for a w x h pill at (x, y) on *image*: an RGBA layer, and the
-    ink its label should take (dark over a bright lens, white over a dark one)."""
+    ink its label should take (dark over a bright lens, white over a dark one).
+    *tinted* colours the glass after what is behind it (_glass_colour)."""
     sdf, nx, ny = _rounded_rect_sdf(w, h, radius, square_top)
     # The lens: a margin of art around the pill, so the bent rim has something
     # to pull in, lightly blurred, a little brighter and more saturated.
@@ -2104,6 +2124,12 @@ def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
     sx = np.clip(xs - nx * pull + (x - l), 0, arr.shape[1] - 1).astype(np.int32)
     sy = np.clip(ys - ny * pull + (y - t), 0, arr.shape[0] - 1).astype(np.int32)
     lens = arr[sy, sx]
+    if tinted:
+        # Coloured glass: the lens takes on the colour of what is behind it,
+        # so the badge changes with every poster (and every corner of one).
+        region = image.crop((x, y, min(image.width, x + w), min(image.height, y + h)))
+        colour = np.array(_glass_colour(region, image), dtype=np.float32)
+        lens = lens * (1 - _LIQUID_COLOUR_A) + colour * _LIQUID_COLOUR_A
     # A clear wash, brighter towards the top.
     top = np.clip(1.0 - ys / (h * 0.55), 0.0, 1.0)[..., None]
     white = _LIQUID_TINT_A + _LIQUID_SHEEN_A * top
@@ -2170,8 +2196,8 @@ def _draw_side_chip(
     radius, pad, shadow_dy, border_w = round(radius), round(pad), round(shadow_dy), round(border_w)
 
     mask = _chip_mask(w, h, radius)
-    if style == "liquid":
-        body, ink = liquid_glass_body(image, x, y, w, h, radius)
+    if style in ("liquid", "liquid_tint"):
+        body, ink = liquid_glass_body(image, x, y, w, h, radius, tinted=style == "liquid_tint")
         badge = Image.alpha_composite(body, liquid_glass_label(
             _notch_label_layer_1x(label, font_size_ss, ss, w, h, (*ink, 245)), ink))
         return _place_chip(image, badge, mask, x, y, w, h, pad, shadow_dy, shadow_blur)
