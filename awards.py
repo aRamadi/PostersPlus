@@ -1672,6 +1672,7 @@ def draw_award_badge(
     chip_offset: float = 0.0,         # side chip only: moved down by this fraction of poster height
     chip_offset_x: float = 0.0,       # side chip only: moved in from its corner by this fraction of poster width
     edge_y: float = 0.5,              # edge notch only: its centre, as a fraction of poster height
+    glass_colour: float | None = None,  # Liquid Glass, Colour: share of the colour behind it the glass takes
     _geom: tuple[int, int] | None = None,   # edge notch: the poster's (width, height), sizes come from it
     _along: float | None = None,            # edge notch: centre along the (turned) top edge, in pixels
 ) -> Image.Image:
@@ -1718,7 +1719,7 @@ def draw_award_badge(
             image.transpose(turn), label, sash_type, size_ratio_w, size_ratio_h, notch_style,
             0.0, notch_pad_ratio, font_size_ratio, frost_opacity, frost_saturation,
             frost_reference, tint_rgb, star, text_color, "center", body_opacity,
-            _geom=image.size, _along=(image.height - y) if left else y)
+            glass_colour=glass_colour, _geom=image.size, _along=(image.height - y) if left else y)
         return drawn.transpose(back)
 
     width, height = _geom or image.size
@@ -1813,13 +1814,14 @@ def draw_award_badge(
             frost_opacity, frost_saturation, frost_reference, tint_rgb,
             style=notch_style, trim_rgb=trim_rgb if notch_style in ("silver", "gold") else None,
             text_color=text_color, body_opacity=body_opacity, offset_x=chip_offset_x,
+            glass_colour=glass_colour,
         )
 
     if notch_style in ("liquid", "liquid_tint"):
         # ── Liquid glass: a clear, bent lens (liquid_glass_body) ──
         crop_y = max(0, by_composite)
         body, ink = liquid_glass_body(image, bx, crop_y, badge_w, badge_h, radius, square_top=True,
-                                      tinted=notch_style == "liquid_tint")
+                                      tinted=notch_style == "liquid_tint", colour=glass_colour)
         badge = Image.alpha_composite(body, liquid_glass_label(
             _notch_label_layer_1x(label, font_size_ss, SS, badge_w, badge_h, (*ink, 245)), ink))
         result = image.copy()
@@ -2101,20 +2103,24 @@ def _glass_colour(region: Image.Image, poster: Image.Image) -> tuple[float, floa
 
 
 def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
-                      radius: float, square_top: bool = False,
-                      tinted: bool = False) -> tuple[Image.Image, tuple[int, int, int]]:
+                      radius: float, square_top: bool = False, tinted: bool = False,
+                      colour: float | None = None) -> tuple[Image.Image, tuple[int, int, int]]:
     """The glass for a w x h pill at (x, y) on *image*: an RGBA layer, and the
     ink its label should take (dark over a bright lens, white over a dark one).
     *tinted* colours the glass a little after what is behind it, and turns up
     the colour of the art it shows, so it changes with every poster while
-    staying see-through."""
+    staying see-through.  *colour* (0-1) is how much colour it takes, the
+    "Glass Colour" slider; None is the style's own (_LIQUID_COLOUR_A)."""
+    amount = _LIQUID_COLOUR_A if colour is None else max(0.0, min(1.0, colour))
     sdf, nx, ny = _rounded_rect_sdf(w, h, radius, square_top)
     m = max(2, int(h * _LIQUID_BEND) + 2)
     l, t = max(0, x - m), max(0, y - m)
     rgt, btm = min(image.width, x + w + m), min(image.height, y + h + m)
     src = image.crop((l, t, rgt, btm)).convert("RGB")
     src = src.filter(ImageFilter.GaussianBlur(max(0.6, h * _LIQUID_BLUR)))
-    src = ImageEnhance.Color(src).enhance(2.0 if tinted else 1.25)
+    # The art's own colour turned up with the tint, so more colour is more of
+    # both: 1.25x clear, 2x at the default amount.
+    src = ImageEnhance.Color(src).enhance(1.25 + 2.35 * amount if tinted else 1.25)
     arr = np.asarray(src, dtype=np.float32)
     # Where each lens pixel looks: slightly magnified about the centre, and
     # pulled further in near the rim, harder the nearer the edge.
@@ -2130,8 +2136,8 @@ def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
     lens = arr[sy, sx]
     if tinted:
         region = image.crop((x, y, min(image.width, x + w), min(image.height, y + h)))
-        colour = np.array(_glass_colour(region, image), dtype=np.float32)
-        lens = lens * (1 - _LIQUID_COLOUR_A) + colour * _LIQUID_COLOUR_A
+        tint = np.array(_glass_colour(region, image), dtype=np.float32)
+        lens = lens * (1 - amount) + tint * amount
     lens = lens * (1 - _LIQUID_WASH_A) + 255.0 * _LIQUID_WASH_A
     # Thick glass darkens just inside its rim.
     shade = np.clip(1.0 + sdf / (h * 0.16), 0.0, 1.0) ** 1.5 * _LIQUID_SHADE_A
@@ -2172,6 +2178,7 @@ def _draw_side_chip(
     text_color: tuple[int, int, int] | None = None,
     body_opacity: float | None = None,
     offset_x: float = 0.0,
+    glass_colour: float | None = None,
 ) -> Image.Image:
     """Chip floating in from a top corner — see draw_award_badge's
     ``position``.
@@ -2200,7 +2207,8 @@ def _draw_side_chip(
 
     mask = _chip_mask(w, h, radius)
     if style in ("liquid", "liquid_tint"):
-        body, ink = liquid_glass_body(image, x, y, w, h, radius, tinted=style == "liquid_tint")
+        body, ink = liquid_glass_body(image, x, y, w, h, radius, tinted=style == "liquid_tint",
+                                      colour=glass_colour)
         badge = Image.alpha_composite(body, liquid_glass_label(
             _notch_label_layer_1x(label, font_size_ss, ss, w, h, (*ink, 245)), ink))
         return _place_chip(image, badge, mask, x, y, w, h, pad, shadow_dy, shadow_blur,

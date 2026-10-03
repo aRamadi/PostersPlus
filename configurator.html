@@ -3575,6 +3575,13 @@ try{if(localStorage.getItem('postersplus_theme')==='light')document.documentElem
                   <span class="range-val" id="rng-sbfo">0.75</span>
                 </div>
               </div>
+              <div class="field" id="sash-liquid-colour-field" style="display:none;">
+                <label class="field-label" data-tip="How much colour the glass takes from what is behind it, and how far it turns up the colour of the art showing through. 0 is clear glass; 0.32 is the style&#39;s own look.">Glass Colour</label>
+                <div class="range-row">
+                  <input type="range" id="cfg-liquid-colour" min="0.00" max="1.00" step="0.01" value="0.32" oninput="syncLiquidColour(this); build(); queuePreviewReload()">
+                  <span class="range-val" id="rng-lqc">0.32</span>
+                </div>
+              </div>
               <div class="field" id="sash-badge-dark-opacity-field" style="display:none;">
                 <label class="field-label" data-tip="How solid the notch's dark body is. The label and trim stay as they are. 0.90 is the style's usual look.">Opacity</label>
                 <div class="range-row">
@@ -3670,6 +3677,13 @@ try{if(localStorage.getItem('postersplus_theme')==='light')document.documentElem
                   <option value="silver">Black, Silver Trim</option>
                   <option value="gold">Black, Gold Trim</option>
                 </select>
+              </div>
+              <div class="field" id="landscape-liquid-colour-field" style="display:none;">
+                <label class="field-label" data-tip="How much colour the glass takes from what is behind it, and how far it turns up the colour of the art showing through. 0 is clear glass; 0.32 is the style&#39;s own look.">Glass Colour</label>
+                <div class="range-row">
+                  <input type="range" id="cfg-liquid-colour-ls" min="0.00" max="1.00" step="0.01" value="0.32" oninput="syncLiquidColour(this); build(); queuePreviewReload()">
+                  <span class="range-val" id="rng-lqc-ls">0.32</span>
+                </div>
               </div>
               <div class="field" id="landscape-badge-text-color-field" style="display:none;">
                 <label class="field-label" data-tip="Hex colour for the badge's label. Leave blank for the style's own.">Text Colour</label>
@@ -6778,7 +6792,9 @@ function buildBaseParams({ usePlaceholders = false, domainOverride = null, full 
     if (_lbStyle !== 'glass') {
       params.set('landscape_badge_style', _lbStyle);
       const _lbtc = document.getElementById('cfg-landscape-badge-text-color').value.trim();
-      if (/^[0-9a-fA-F]{6}$/.test(_lbtc)) params.set('landscape_badge_text_color', _lbtc);
+      if (/^[0-9a-fA-F]{6}$/.test(_lbtc) && !_lbStyle.startsWith('liquid')) params.set('landscape_badge_text_color', _lbtc);
+      if (_lbStyle === 'liquid_tint' && n('cfg-liquid-colour') !== 0.32)
+        params.set('liquid_colour', n('cfg-liquid-colour').toFixed(2));
     }
     if (c('tog-landscape-winner-star')) params.set('landscape_winner_star', 'true');
     for (const [id, [param, def, dec]] of Object.entries(LANDSCAPE_BADGE_TUNING)) {
@@ -6985,6 +7001,8 @@ function buildBaseParams({ usePlaceholders = false, domainOverride = null, full 
       params.set('sash_badge_size_h',        n('cfg-sash-badge-size-h').toFixed(2));
       params.set('sash_badge_pad',           n('cfg-sash-badge-pad').toFixed(2));
       params.set('sash_badge_font_ratio',    n('cfg-sash-badge-font-ratio').toFixed(2));
+      if (vEl('cfg-sash-badge-style') === 'liquid_tint' && n('cfg-liquid-colour') !== 0.32)
+        params.set('liquid_colour', n('cfg-liquid-colour').toFixed(2));
       if (vEl('cfg-sash-badge-style') === 'frosted') {
         params.set('sash_badge_frost_opacity', n('cfg-sash-badge-frost-opacity').toFixed(2));
         params.set('sash_badge_frost_saturation', n('cfg-sash-badge-frost-sat').toFixed(2));
@@ -8043,12 +8061,27 @@ function updateRatingBadgeRows() {
 
 // The text colour is the dark pills'; the glass picks its own ink.
 function updateLandscapeBadgeFields() {
-  const glass = (vEl('cfg-landscape-badge-style') || 'glass') === 'glass';
-  document.getElementById('landscape-badge-text-color-field').style.display = glass ? 'none' : '';
+  const style = vEl('cfg-landscape-badge-style') || 'glass';
+  const glass = style === 'glass';
+  // The glass styles pick their own label ink.
+  const anyGlass = ['glass', 'liquid', 'liquid_tint'].includes(style);
+  document.getElementById('landscape-badge-text-color-field').style.display = anyGlass ? 'none' : '';
   // The glass's two sliders, or the dark body's opacity: as on the portrait notch.
   document.getElementById('landscape-badge-glass-opacity-field').style.display = glass ? '' : 'none';
   document.getElementById('landscape-badge-saturation-field').style.display    = glass ? '' : 'none';
-  document.getElementById('landscape-badge-opacity-field').style.display       = glass ? 'none' : '';
+  document.getElementById('landscape-badge-opacity-field').style.display       = anyGlass ? 'none' : '';
+  document.getElementById('landscape-liquid-colour-field').style.display =
+    style === 'liquid_tint' ? '' : 'none';
+}
+
+// Glass Colour (liquid_colour) has a slider beside each shape's style; one
+// setting, so moving either moves both.
+function syncLiquidColour(el) {
+  for (const [id, out] of [['cfg-liquid-colour', 'rng-lqc'], ['cfg-liquid-colour-ls', 'rng-lqc-ls']]) {
+    const other = document.getElementById(id);
+    if (other !== el) other.value = el.value;
+    updateRange(other, out);
+  }
 }
 
 // The landscape Badge Settings: control id -> [parameter, default, decimals].
@@ -8104,6 +8137,8 @@ function updateBadgeStyleFields() {
     && vEl('cfg-sash-mode') === 'notch' && vEl('cfg-sash-badge-style') === 'frosted';
   const ref = c('tog-sash-frost-reference');
   document.getElementById('sash-badge-opacity-field').style.display = isFrosted ? '' : 'none';
+  document.getElementById('sash-liquid-colour-field').style.display = (!c('tog-landscape')
+    && vEl('cfg-sash-mode') === 'notch' && vEl('cfg-sash-badge-style') === 'liquid_tint') ? '' : 'none';
   document.getElementById('sash-badge-dark-opacity-field').style.display =
     (!c('tog-landscape') && vEl('cfg-sash-mode') === 'notch' && !isFrosted) ? '' : 'none';
   document.getElementById('sash-reference-row').style.display = isFrosted ? '' : 'none';
@@ -9307,7 +9342,7 @@ const _BOTH_SHAPES_CONTROLS = new Set([
   'cfg-language', 'cfg-language-secondary', 'cfg-logo-priority',
   'tog-fallback-imdb', 'cfg-imdb-rating-source', 'cfg-tmdb-rating-source',
   'tog-release-cinema-only', 'tog-release-dates', 'tog-anime-weights',
-  'tog-hide-unreleased-rating', 'cfg-meta-order', 'cfg-label-font', 'cfg-original-labels',
+  'tog-hide-unreleased-rating', 'cfg-meta-order', 'cfg-label-font', 'cfg-original-labels', 'cfg-liquid-colour', 'cfg-liquid-colour-ls',
   'cfg-primary-client', 'cfg-resolution', 'cfg-domain', 'cfg-access-key', 'cfg-tmdb-key', 'cfg-mdblist-key',
   'cfg-search-query',
 ]);
@@ -9737,7 +9772,7 @@ function importUrl(urlStr, { silent = false, settingsOnly = false, preserveClien
       _setEl('cfg-landscape-info-col', _okInfo ? _lic : 'right'); }
     _setEl('tog-landscape-poster-crop', p.get('landscape_poster_crop') || 'false');
     _setEl('tog-landscape-greyscale',   p.get('landscape_greyscale') || 'false');
-    _setEl('cfg-landscape-badge-style', ['black', 'silver', 'gold'].includes(p.get('landscape_badge_style'))
+    _setEl('cfg-landscape-badge-style', ['black', 'silver', 'gold', 'liquid', 'liquid_tint'].includes(p.get('landscape_badge_style'))
       ? p.get('landscape_badge_style') : 'glass');
     { const _lbtc = (p.get('landscape_badge_text_color') || '').replace('#', '').toUpperCase();
       document.getElementById('cfg-landscape-badge-text-color').value = _lbtc;
@@ -9797,6 +9832,12 @@ function importUrl(urlStr, { silent = false, settingsOnly = false, preserveClien
   else if (p.has('show_award_sash') && p.get('show_award_sash') !== 'true') _setEl('cfg-sash-mode', 'hidden');
   else if (p.has('sash_badge'))          _setEl('cfg-sash-mode', p.get('sash_badge') === 'true' ? 'notch' : 'sash');
   if (p.has('sash_badge_style'))         _setEl('cfg-sash-badge-style',        p.get('sash_badge_style'));
+  {
+    const _lqc = parseFloat(p.get('liquid_colour'));
+    const lqc = Number.isFinite(_lqc) ? Math.max(0, Math.min(1, _lqc)) : 0.32;
+    _setEl('cfg-liquid-colour', lqc.toFixed(2));
+    syncLiquidColour(document.getElementById('cfg-liquid-colour'));
+  }
   _setEl('cfg-sash-badge-pos', p.get('sash_badge_pos') || 'center');
   _setEl('cfg-sash-chip-y', p.get('sash_chip_y') || '0.000');
   _setEl('cfg-sash-chip-x', p.get('sash_chip_x') || '0.000');
