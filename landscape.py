@@ -540,6 +540,17 @@ def _draw_badge(image: Image.Image, text: str, position: str, art: Image.Image,
         y = hit[3] + gap if down else hit[1] - gap - bh
 
     style = getattr(cfg, "landscape_badge_style", "glass")
+    if style == "liquid":
+        from awards import liquid_glass_body, liquid_glass_label
+        body, ink = liquid_glass_body(image, x, y, bw, bh, bh / 2)
+        image.alpha_composite(body, (x, y))
+        label_layer = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+        _ty = y + pad_y - round(2 * scale)
+        if has_arabic(text):
+            _ty = fonts.arabic_top(font, draw.textbbox((0, 0), text, font=font), y + bh / 2)
+        ImageDraw.Draw(label_layer).text((pad_x, _ty - y), text, font=font, fill=(*ink, 245))
+        image.alpha_composite(liquid_glass_label(label_layer, ink), (x, y))
+        return
     if style in _DARK_INK:
         ink = _dark_pill(image, (x, y, x + bw, y + bh), style,
                          getattr(cfg, "landscape_badge_text_color", None))
