@@ -2065,7 +2065,7 @@ _LIQUID_BEND     = 0.45   # how far the rim pulls its image in, a share of the h
 _LIQUID_BAND     = 0.50   # width of the bending band inside the rim, a share of the height
 _LIQUID_WASH_A   = 0.06   # white wash over the whole lens
 _LIQUID_SHADE_A  = 0.16   # darkening just inside the rim, as thick glass darkens there
-_LIQUID_COLOUR_A = 0.18   # tinted glass: how much of the colour behind it the glass takes
+_LIQUID_COLOUR_A = 0.32   # tinted glass: how much of the colour behind it the glass takes
 _LIQUID_SHADOW_A = 40     # drop shadow alpha (the side chips' own is heavier)
 
 
@@ -2114,7 +2114,7 @@ def liquid_glass_body(image: Image.Image, x: int, y: int, w: int, h: int,
     rgt, btm = min(image.width, x + w + m), min(image.height, y + h + m)
     src = image.crop((l, t, rgt, btm)).convert("RGB")
     src = src.filter(ImageFilter.GaussianBlur(max(0.6, h * _LIQUID_BLUR)))
-    src = ImageEnhance.Color(src).enhance(1.7 if tinted else 1.25)
+    src = ImageEnhance.Color(src).enhance(2.0 if tinted else 1.25)
     arr = np.asarray(src, dtype=np.float32)
     # Where each lens pixel looks: slightly magnified about the centre, and
     # pulled further in near the rim, harder the nearer the edge.
