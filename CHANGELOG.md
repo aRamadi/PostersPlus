@@ -148,6 +148,15 @@
   the chip out to the margin, its gaps growing up to 2.5 times the group's
   spacing; a short row still sits against the chip.
 
+### Mini Series follows TMDB's own Miniseries type
+
+- A show TMDB types as **Miniseries** gets the Mini Series sash whatever its
+  episode count, as well as one season of up to eight episodes. Limited
+  series outside the US and UK often run 10 to 15 episodes (most Arabic
+  ones do) and missed it. TMDB's type is kept with the rest of a show's
+  cached metadata, so a show cached before this picks it up when its
+  metadata next refreshes.
+
 ### More network and studio logos, drawn at one standard size
 
 - The studio badge knows about 37 more studios: MGM, Miramax, Lions Gate
