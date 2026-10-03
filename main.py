@@ -2111,6 +2111,7 @@ class RequestConfig:
     sash_badge_pad:   float = 1.0          # vertical padding scale (<1 tightens top/bottom space)
     sash_badge_font_ratio:   float = 0.43  # font size as fraction of badge height
     sash_badge_frost_opacity: float = 0.75 # frosted overlay opacity (0.0–1.0)
+    liquid_colour: float = 0.32  # Liquid Glass, Colour: share of the colour behind it the glass takes (0–1)
     sash_badge_opacity: float | None = None  # black/silver/gold body opacity; None = 0.90, their own
     sash_badge_frost_saturation: float = 1.2 # frosted colour-cast strength (0 = grey)
     # Take the frosted notch's colour from whatever a tinted vignette landed on,
@@ -2518,7 +2519,7 @@ def _render_config_signature(cfg: "RequestConfig") -> str:
     return json.dumps(fields, sort_keys=True, default=_stable)
 
 
-_SIGNATURE_OMIT_AT_DEFAULT = {"poster_width": 500, "rating_badges": "", "rating_badge_scale": "native",
+_SIGNATURE_OMIT_AT_DEFAULT = {"poster_width": 500, "liquid_colour": 0.32, "rating_badges": "", "rating_badge_scale": "native",
                               "rating_badge_style": "color",
                               "cinema_greyscale_without_sash": False, "trending_style": "sash",
                               "trending_scale": 1.0, "trending_label": False, "trending_corner": False,
@@ -2727,6 +2728,7 @@ def build_request_config(params: dict) -> RequestConfig:
     cfg.sash_edge_y              = _f("sash_edge_y",              cfg.sash_edge_y,              0.05, 0.95)
     cfg.sash_badge_font_ratio    = _f("sash_badge_font_ratio",    cfg.sash_badge_font_ratio,    0.10, 1.0)
     cfg.sash_badge_frost_opacity = _f("sash_badge_frost_opacity", cfg.sash_badge_frost_opacity, 0.0, 1.0)
+    cfg.liquid_colour = _f("liquid_colour", cfg.liquid_colour, 0.0, 1.0)
     if "sash_badge_opacity" in params:
         # 0.90 is how the dark styles draw anyway, so it shares their key.
         _op = _f("sash_badge_opacity", 0.90, 0.0, 1.0)
@@ -5153,6 +5155,7 @@ def _build_poster(
                                      frost_opacity=cfg.sash_badge_frost_opacity,
                                      frost_saturation=cfg.sash_badge_frost_saturation,
                                      frost_reference=_frost_ref,
+                                     glass_colour=cfg.liquid_colour,
                                      tint_rgb=_frost_tint,
                                      star=_is_star,
                                      text_color=cfg.sash_text_color,
