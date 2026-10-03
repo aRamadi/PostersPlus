@@ -21,6 +21,15 @@
   genre, sash and title in Arabic and leaves Hollywood films in English. The
   configurator takes as many languages as you like; a language without a
   translation file is left as it is.
+### Mini Series follows TMDB's own Miniseries type
+
+- A show TMDB types as **Miniseries** gets the Mini Series sash whatever its
+  episode count, as well as one season of up to eight episodes. Limited
+  series outside the US and UK often run 10 to 15 episodes (most Arabic
+  ones do) and missed it. TMDB's type is kept with the rest of a show's
+  cached metadata, so a show cached before this picks it up when its
+  metadata next refreshes.
+
 ### Original art in the Logo Priority list
 
 - Logo Priority has a new **Original Art** entry (`art` in `logo_priority`,
