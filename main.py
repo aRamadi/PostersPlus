@@ -2867,7 +2867,7 @@ def build_request_config(params: dict) -> RequestConfig:
     cfg.landscape_score_star      = _b("landscape_score_star",      cfg.landscape_score_star)
     cfg.landscape_greyscale       = _b("landscape_greyscale",       cfg.landscape_greyscale)
     _ls_style = (params.get("landscape_badge_style") or "").strip().lower()
-    if _ls_style in ("glass", "black", "silver", "gold"):
+    if _ls_style in ("glass", "liquid", "black", "silver", "gold"):
         cfg.landscape_badge_style = _ls_style
     cfg.landscape_badge_text_color = _parse_hex_color(params.get("landscape_badge_text_color"))
     cfg.landscape_winner_star     = _b("landscape_winner_star",     cfg.landscape_winner_star)
@@ -2902,7 +2902,7 @@ def build_request_config(params: dict) -> RequestConfig:
     cfg.sash_badge_size_w       = _f("sash_badge_size_w",       cfg.sash_badge_size_w,       0.5, 2.0)
     cfg.sash_badge_size_h       = _f("sash_badge_size_h",       cfg.sash_badge_size_h,       0.5, 2.0)
     _style_raw = params.get("sash_badge_style", cfg.sash_badge_style)
-    if _style_raw in ("silver", "gold", "frosted", "black"):
+    if _style_raw in ("silver", "gold", "frosted", "black", "liquid"):
         cfg.sash_badge_style = _style_raw
     _pos_raw = (params.get("sash_badge_pos") or "").strip().lower()
     if _pos_raw in ("center", "left", "right", "auto", "auto_hug", "edge_left", "edge_right"):
