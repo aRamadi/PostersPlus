@@ -60,10 +60,11 @@ git rebase --onto arabic-labels "$OLD" aer
 
 **Where conflicts happen:**
 - **`CHANGELOG.md`:** both sides add a section under "Unreleased". Keep both.
+- **`main.py` `_SIGNATURE_OMIT_AT_DEFAULT`:** upstream adds its new settings at the end of the same dict as `"original_labels": ""`; keep both.
 - **`main.py` `_RENDER_REVISIONS`:** upstream may take the same revision number
-  as ours (that's how 19 became 20). Keep upstream's entry, give the Arabic
+  as ours (19 became 20 on 2026-10-03; upstream's logo work took 20 to 29, so it became 30 on 2026-10-04). Keep upstream's entry, give the Arabic
   one the next free number, and change `tests/test_arabic_labels.py`
-  (`r.rev == 20`) to match. The commit message says "Render revision NN" too.
+  (`r.rev == 30` now) to match. The commit message says "Render revision NN" too.
   Fix it with `git commit --amend` once the rebase is done.
 - **`config.py` `APP_VERSION` / configurator header (`aer` only):** if upstream
   bumps its version (say to 1.3.0), set ours to `1.3.0-AER` in both places.
