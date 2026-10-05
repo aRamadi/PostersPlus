@@ -66,6 +66,20 @@ git rebase --onto arabic-labels "$OLD" aer
   one the next free number, and change `tests/test_arabic_labels.py`
   (`r.rev == 30` now) to match. The commit message says "Render revision NN" too.
   Fix it with `git commit --amend` once the rebase is done.
+- **`main.py` `_SIGNATURE_OMIT_AT_DEFAULT` (`aer`, Glass Colour commit):** our
+  side only adds `"liquid_colour": 0.32` to the dict's first line; keep
+  upstream's whole block (2026-10-05 it added `_LANDSCAPE_BADGE_TUNING` just
+  above) and put `"liquid_colour": 0.32` back into that line.
+- **`configurator.html` `updateLandscapeBadgeFields` (`aer`, Glass Colour
+  commit):** upstream shows its glass sliders for `glass`; ours hides the text
+  colour for every glass style and shows Glass Colour for `liquid_tint`.
+  Combine: text colour hidden for `glass`/`liquid`/`liquid_tint`, upstream's
+  glass opacity and saturation for `glass` only (Liquid Glass doesn't read
+  them), the dark opacity for the non-glass styles, and keep
+  `syncLiquidColour` after the function.
+- **Committer:** this clone needs `git config user.name aramadi` and
+  `user.email 13223587+aRamadi@users.noreply.github.com` (set 2026-10-05), or
+  `git rebase --continue` stops with "unable to auto-detect email".
 - **`config.py` `APP_VERSION` / configurator header (`aer` only):** if upstream
   bumps its version (say to 1.3.0), set ours to `1.3.0-AER` in both places.
 
